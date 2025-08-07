@@ -58,4 +58,41 @@ awk -F: '($3 == "0") {print $1}' /etc/passwd
 echo -e "\n${YELLOW}8. World-writable files (excluding /proc and /sys):${NC}"
 find / -path /proc -prune -o -path /sys -prune -o -type f -perm -002 -ls 2>/dev/null | head -n 10
 
+# 9. Recently created user accounts (last 7 days)
+echo -e "\n${YELLOW}9. Recently created user accounts (last 7 days):${NC}"
+getent passwd | while IFS=: read -r user _ uid _ _ home shell; do
+    if [[ "$uid" -ge 1000 && "$uid" -lt 65534 && -d "$home" ]]; then
+        created=$(stat -c %W "$home")
+        if [[ "$created" -ne 0 && $(( $(date +%s) - $created )) -lt 604800 ]]; then
+            echo -e "${GREEN}✔ $user created within the last 7 days${NC}"
+        fi
+    fi
+done
+
+# 10. Scheduled Tasks (Cron, at, systemd timers)
+echo -e "\n${YELLOW}10. Scheduled Tasks:${NC}"
+
+# System-wide cron jobs
+echo -e "${BLUE}System cron jobs (/etc/cron*):${NC}"
+find /etc/cron* -type f -exec ls -l {} \; 2>/dev/null
+
+# Per-user crontabs
+echo -e "${BLUE}User crontabs:${NC}"
+for user in $(cut -f1 -d: /etc/passwd); do
+    crontab -u "$user" -l 2>/dev/null | grep -v '^#' | grep . && echo "↑ $user"
+done
+
+# at jobs
+if command -v atq &>/dev/null; then
+    echo -e "${BLUE}at jobs:${NC}"
+    atq
+else
+    echo -e "at is not installed."
+fi
+
+# systemd timers
+echo -e "${BLUE}Active systemd timers:${NC}"
+systemctl list-timers --all --no-pager | grep -v "n/a"
+
+
 echo -e "\n${GREEN}==== END OF CHECK ====${NC}"
