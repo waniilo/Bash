@@ -1,0 +1,53 @@
+#!/bin/bash
+
+# Colors
+GREEN="\e[32m"
+BLUE="\e[34m"
+NC="\e[0m" # No Color
+
+echo -e "${GREEN}==== SYSTEM INFORMATION ====${NC}"
+
+# Hostname and OS
+echo -e "${BLUE}Hostname:$(hostname)${NC}"
+echo -e "${BLUE}OS:$(lsb_release -d | cut -f2)${NC}"
+echo -e "${BLUE}Kernel:$(uname -r)${NC}"
+
+# Uptime
+echo -e "${GREEN}\n==== UPTIME ====${NC}"
+uptime -p
+
+# Logged-in users
+echo -e "${GREEN}\n==== LOGGED IN USERS ====${NC}"
+who
+
+# Disk Usage
+echo -e "${GREEN}\n==== DISK USAGE ====${NC}"
+df -h --total | grep -E 'Filesystem|total'
+
+# Memory Usage
+echo -e "${GREEN}\n==== MEMORY USAGE ====${NC}"
+free -h
+
+# CPU Load
+echo -e "${GREEN}\n==== CPU LOAD ====${NC}"
+top -bn1 | grep "load average"
+
+# IP Addresses
+echo -e "${GREEN}\n==== IP ADDRESSES ====${NC}"
+ip -brief addr show | grep -v "LOOPBACK"
+
+# Open Ports
+echo -e "${GREEN}\n==== OPEN PORTS ====${NC}"
+ss -tuln
+
+# Services Running
+echo -e "${GREEN}\n==== ACTIVE SERVICES ====${NC}"
+systemctl list-units --type=service --state=running | head -20
+
+# Updates Available (Debian/Ubuntu only)
+if command -v apt &> /dev/null; then
+    echo -e "${GREEN}\n==== UPDATES AVAILABLE ====${NC}"
+    apt update -qq > /dev/null && apt list --upgradable 2>/dev/null | grep -v "Listing"
+fi
+
+echo -e "${GREEN}\n==== END ====${NC}"
