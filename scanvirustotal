@@ -1,0 +1,51 @@
+#!/bin/bash
+
+# VirusTotal API Key (replace with your own)
+VT_API_KEY="YOUR_VIRUSTOTAL_API_KEY"
+
+# Colors
+GREEN="\e[32m"
+RED="\e[31m"
+YELLOW="\e[33m"
+NC="\e[0m"
+
+echo -e "${YELLOW}Scanning ESTABLISHED connections...${NC}"
+
+# Get all unique remote IPs with ESTABLISHED connections
+ips=$(ss -tan state established | awk 'NR>1 {print $5}' | cut -d: -f1 | sort | uniq)
+
+# Exit if no connections
+if [[ -z "$ips" ]]; then
+    echo -e "${GREEN}No established remote connections detected.${NC}"
+    exit 0
+fi
+
+malicious_found=0
+
+# Loop through each IP and query VirusTotal
+for ip in $ips; do
+    echo -e "\nChecking IP: ${ip}"
+
+    response=$(curl -s -G "https://www.virustotal.com/api/v3/ip_addresses/${ip}" \
+        --header "x-apikey: ${VT_API_KEY}")
+
+    malicious=$(echo "$response" | jq '.data.attributes.last_analysis_stats.malicious')
+    suspicious=$(echo "$response" | jq '.data.attributes.last_analysis_stats.suspicious')
+    harmless=$(echo "$response" | jq '.data.attributes.last_analysis_stats.harmless')
+
+    if [[ "$malicious" -gt 0 || "$suspicious" -gt 0 ]]; then
+        echo -e "${RED}⚠️ Malicious or suspicious activity detected on IP: $ip${NC}"
+        echo -e "  -> Malicious: $malicious, Suspicious: $suspicious"
+        malicious_found=1
+    else
+        echo -e "${GREEN}✔ $ip appears safe (Harmless: $harmless)${NC}"
+    fi
+done
+
+# Final status
+echo -e "\n${YELLOW}Summary:${NC}"
+if [[ "$malicious_found" -eq 1 ]]; then
+    echo -e "${RED}🚨 Potential threats detected in current network connections!${NC}"
+else
+    echo -e "${GREEN}✅ No malicious IPs detected in established connections.${NC}"
+fi
