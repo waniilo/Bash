@@ -1,0 +1,61 @@
+#!/bin/bash
+
+# Colors
+GREEN="\e[32m"
+RED="\e[31m"
+YELLOW="\e[33m"
+NC="\e[0m" # No Color
+
+echo -e "${GREEN}==== BASIC SECURITY CHECK ====${NC}"
+
+# 1. Check for failed login attempts
+echo -e "\n${YELLOW}1. Failed login attempts:${NC}"
+lastb | head -n 10 || echo "No failed logins found or 'lastb' command not available."
+
+# 2. Check for successful root logins
+echo -e "\n${YELLOW}2. Root login activity:${NC}"
+last -F | grep "root" | head -n 5
+
+# 3. Check SSH configuration
+echo -e "\n${YELLOW}3. SSH root login disabled:${NC}"
+if grep -q "^PermitRootLogin no" /etc/ssh/sshd_config; then
+    echo -e "${GREEN}✔ Root login over SSH is disabled.${NC}"
+else
+    echo -e "${RED}✖ Root login over SSH may be enabled!${NC}"
+fi
+
+# 4. Check firewall status (UFW or firewalld)
+echo -e "\n${YELLOW}4. Firewall status:${NC}"
+if command -v ufw &>/dev/null; then
+    ufw status verbose
+elif command -v firewall-cmd &>/dev/null; then
+    firewall-cmd --state
+else
+    echo -e "${RED}✖ No firewall (ufw/firewalld) detected.${NC}"
+fi
+
+# 5. Check for open ports
+echo -e "\n${YELLOW}5. Open ports:${NC}"
+ss -tuln | grep LISTEN
+
+# 6. Check if system is up to date (Debian-based)
+echo -e "\n${YELLOW}6. System update check:${NC}"
+if command -v apt &>/dev/null; then
+    updates=$(apt list --upgradable 2>/dev/null | grep -v "Listing")
+    if [[ -z "$updates" ]]; then
+        echo -e "${GREEN}✔ System is up to date.${NC}"
+    else
+        echo -e "${RED}✖ System has pending updates:${NC}"
+        echo "$updates"
+    fi
+fi
+
+# 7. Check for users with UID 0 (should only be root)
+echo -e "\n${YELLOW}7. Users with UID 0 (root privilege):${NC}"
+awk -F: '($3 == "0") {print $1}' /etc/passwd
+
+# 8. Check for world-writable files (excluding /proc and /sys)
+echo -e "\n${YELLOW}8. World-writable files (excluding /proc and /sys):${NC}"
+find / -path /proc -prune -o -path /sys -prune -o -type f -perm -002 -ls 2>/dev/null | head -n 10
+
+echo -e "\n${GREEN}==== END OF CHECK ====${NC}"
