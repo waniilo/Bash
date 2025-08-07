@@ -1,0 +1,81 @@
+#!/bin/bash
+
+# VirusTotal API Key (replace with your own)
+VT_API_KEY="YOUR_VIRUSTOTAL_API_KEY"
+
+# Colors
+GREEN="\e[32m"
+RED="\e[31m"
+YELLOW="\e[33m"
+BLUE="\e[34m"
+NC="\e[0m"
+
+# Check dependencies
+for cmd in jq curl ss grep awk cut sort uniq; do
+    if ! command -v $cmd &>/dev/null; then
+        echo -e "${RED}Missing required command: $cmd. Please install it.${NC}"
+        exit 1
+    fi
+done
+
+echo -e "${YELLOW}Scanning ESTABLISHED connections and historical logs...${NC}"
+
+# --- CURRENT ESTABLISHED CONNECTIONS ---
+current_ips=$(ss -tan state established | awk 'NR>1 {print $5}' | cut -d: -f1 | grep -Eo '([0-9]{1,3}\.){3}[0-9]{1,3}' | sort -u)
+
+# --- HISTORICAL IPs FROM LOGS ---
+logfiles=("/var/log/auth.log" "/var/log/syslog" "/var/log/secure")
+log_ips=""
+
+for logfile in "${logfiles[@]}"; do
+    if [[ -f "$logfile" ]]; then
+        log_ips+=$(grep -Eo '([0-9]{1,3}\.){3}[0-9]{1,3}' "$logfile" | sort -u)
+        log_ips+="\n"
+    fi
+done
+
+# Combine current and log IPs, de-duplicate
+all_ips=$(echo -e "$current_ips\n$log_ips" | sort -u | grep -v '^127\.' | grep -v '^0\.0\.0\.0' | grep -v '^::1' | grep -v '^192\.168\.' | grep -v '^10\.' | grep -v '^172\.(1[6-9]|2[0-9]|3[0-1])\.')
+
+if [[ -z "$all_ips" ]]; then
+    echo -e "${GREEN}✔ No external IPs found in current connections or logs.${NC}"
+    exit 0
+fi
+
+malicious_found=0
+
+# Check each IP against VirusTotal
+for ip in $all_ips; do
+    echo -e "\n🔍 Checking IP: ${BLUE}${ip}${NC}"
+
+    response=$(curl -s --header "x-apikey: ${VT_API_KEY}" \
+        "https://www.virustotal.com/api/v3/ip_addresses/${ip}")
+
+    # Handle API error
+    if echo "$response" | grep -q '"error"'; then
+        message=$(echo "$response" | jq -r '.error.message // "Unknown error"')
+        echo -e "${RED}❌ Error querying VirusTotal: $message${NC}"
+        continue
+    fi
+
+    # Extract reputation
+    malicious=$(echo "$response" | jq '.data.attributes.last_analysis_stats.malicious')
+    suspicious=$(echo "$response" | jq '.data.attributes.last_analysis_stats.suspicious')
+    harmless=$(echo "$response" | jq '.data.attributes.last_analysis_stats.harmless')
+
+    if [[ "$malicious" -gt 0 || "$suspicious" -gt 0 ]]; then
+        echo -e "${RED}⚠️ Malicious or suspicious IP detected: $ip${NC}"
+        echo -e "  -> Malicious: $malicious, Suspicious: $suspicious"
+        malicious_found=1
+    else
+        echo -e "${GREEN}✔ $ip appears safe (Harmless: $harmless)${NC}"
+    fi
+done
+
+# Summary
+echo -e "\n${YELLOW}Summary:${NC}"
+if [[ "$malicious_found" -eq 1 ]]; then
+    echo -e "${RED}🚨 Potential threats found in current or past connections!${NC}"
+else
+    echo -e "${GREEN}✅ All checked IPs appear safe.${NC}"
+fi
